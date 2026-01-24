@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import pdf from "pdf-parse";
 
 export async function POST(req: Request) {
   const formData = await req.formData();
@@ -11,10 +12,20 @@ export async function POST(req: Request) {
     );
   }
 
+  let text = "";
+
+  if (file.type === "application/pdf") {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const data = await pdf(buffer);
+    text = data.text;
+  } else {
+    text = await file.text();
+  }
+
   return NextResponse.json({
     filename: file.name,
     type: file.type,
-    size: file.size,
-    message: "File received successfully",
+    extractedTextPreview: text.slice(0, 1000),
+    charCount: text.length
   });
 }
