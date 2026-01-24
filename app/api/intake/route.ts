@@ -42,10 +42,24 @@ export async function POST(req: Request) {
     );
   }
 
-  const intentObject = await brainResponse.json();
+    const intentObject = await brainResponse.json();
+
+  // --- CALL ORCHESTRATOR ---
+  const orchestratorResponse = await fetch(
+    `${process.env.NEXT_PUBLIC_BASE_URL}/api/orchestrate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(intentObject),
+    }
+  );
+
+  const decision = await orchestratorResponse.json();
 
   return NextResponse.json({
     filename: file.name,
     intentObject,
+    decision,
   });
-}
