@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pdf from "pdf-parse";
 
 const BRAIN_ENDPOINT = process.env.BRAIN_ENDPOINT;
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
 export async function POST(req: Request) {
   const formData = await req.formData();
@@ -42,19 +43,23 @@ export async function POST(req: Request) {
     );
   }
 
-    const intentObject = await brainResponse.json();
+  const intentObject = await brainResponse.json();
 
   // --- CALL ORCHESTRATOR ---
-  const orchestratorResponse = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL}/api/orchestrate`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(intentObject),
-    }
-  );
+  const orchestratorResponse = await fetch(`${BASE_URL}/api/orchestrate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(intentObject),
+  });
+
+  if (!orchestratorResponse.ok) {
+    return NextResponse.json(
+      { error: "Orchestrator call failed" },
+      { status: 500 }
+    );
+  }
 
   const decision = await orchestratorResponse.json();
 
@@ -63,3 +68,4 @@ export async function POST(req: Request) {
     intentObject,
     decision,
   });
+}
