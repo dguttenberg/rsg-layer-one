@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import pdf from "pdf-parse";
 
 const BRAIN_ENDPOINT = process.env.BRAIN_ENDPOINT;
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
+const PROCESSOR_ENDPOINT = process.env.PROCESSOR_ENDPOINT;
 
 export async function POST(req: Request) {
   const formData = await req.formData();
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     text = await file.text();
   }
 
-  // --- CALL THE BRAIN ---
+  // --- STEP 1: CALL THE BRAIN ---
   const brainResponse = await fetch(BRAIN_ENDPOINT as string, {
     method: "POST",
     headers: {
@@ -37,35 +37,42 @@ export async function POST(req: Request) {
   });
 
   if (!brainResponse.ok) {
+    const errorText = await brainResponse.text();
     return NextResponse.json(
-      { error: "Brain call failed" },
+      { error: "Brain call failed", details: errorText },
       { status: 500 }
     );
   }
 
   const intentObject = await brainResponse.json();
 
-  // --- CALL ORCHESTRATOR ---
-  const orchestratorResponse = await fetch(`${BASE_URL}/api/orchestrate`, {
+  // --- STEP 2: CALL THE PROCESSOR (nextjs-boilerplate) ---
+  const processorResponse = await fetch(PROCESSOR_ENDPOINT as string, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(intentObject),
+    body: JSON.stringify({ intentObject }),
   });
 
-  if (!orchestratorResponse.ok) {
+  if (!processorResponse.ok) {
+    const errorText = await processorResponse.text();
     return NextResponse.json(
-      { error: "Orchestrator call failed" },
+      {
+        error: "Processor call failed",
+        details: errorText,
+        intentObject, // Still return brain output
+      },
       { status: 500 }
     );
   }
 
-  const decision = await orchestratorResponse.json();
+  const processed = await processorResponse.json();
 
+  // --- RETURN COMBINED OUTPUT ---
   return NextResponse.json({
     filename: file.name,
     intentObject,
-    decision,
+    processed,
   });
 }
