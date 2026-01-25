@@ -4,75 +4,120 @@ import pdf from "pdf-parse";
 const BRAIN_ENDPOINT = process.env.BRAIN_ENDPOINT;
 const PROCESSOR_ENDPOINT = process.env.PROCESSOR_ENDPOINT;
 
+type ProcessedResult = {
+  filename: string;
+  success: boolean;
+  intentObject?: any;
+  processed?: any;
+  error?: string;
+};
+
+async function extractText(file: File): Promise<string> {
+  if (file.type === "application/pdf") {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const data = await pdf(buffer);
+    return data.text;
+  }
+  return await file.text();
+}
+
+async function processSingleBrief(file: File): Promise<ProcessedResult> {
+  const filename = file.name;
+
+  try {
+    // Extract text from file
+    const text = await extractText(file);
+
+    // Call the Brain
+    const brainResponse = await fetch(BRAIN_ENDPOINT as string, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_text: text }),
+    });
+
+    if (!brainResponse.ok) {
+      const errorText = await brainResponse.text();
+      return {
+        filename,
+        success: false,
+        error: `Brain call failed: ${errorText}`,
+      };
+    }
+
+    const intentObject = await brainResponse.json();
+
+    // Call the Processor
+    const processorResponse = await fetch(PROCESSOR_ENDPOINT as string, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intentObject }),
+    });
+
+    if (!processorResponse.ok) {
+      const errorText = await processorResponse.text();
+      return {
+        filename,
+        success: false,
+        intentObject,
+        error: `Processor call failed: ${errorText}`,
+      };
+    }
+
+    const processed = await processorResponse.json();
+
+    return {
+      filename,
+      success: true,
+      intentObject,
+      processed,
+    };
+  } catch (err: any) {
+    return {
+      filename,
+      success: false,
+      error: err.message || "Unknown error",
+    };
+  }
+}
+
 export async function POST(req: Request) {
   const formData = await req.formData();
-  const file = formData.get("file") as File;
 
-  if (!file) {
+  // Get all files - supports both single "file" and multiple "files"
+  const files: File[] = [];
+
+  // Check for single file upload (backward compatible)
+  const singleFile = formData.get("file") as File | null;
+  if (singleFile) {
+    files.push(singleFile);
+  }
+
+  // Check for multiple files upload
+  const multipleFiles = formData.getAll("files") as File[];
+  files.push(...multipleFiles.filter(f => f instanceof File));
+
+  if (files.length === 0) {
     return NextResponse.json(
-      { error: "No file received" },
+      { error: "No files received" },
       { status: 400 }
     );
   }
 
-  let text = "";
+  // Process all briefs in parallel
+  const results = await Promise.all(
+    files.map(file => processSingleBrief(file))
+  );
 
-  if (file.type === "application/pdf") {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const data = await pdf(buffer);
-    text = data.text;
-  } else {
-    text = await file.text();
-  }
+  // Summary stats
+  const successful = results.filter(r => r.success).length;
+  const failed = results.filter(r => !r.success).length;
 
-  // --- STEP 1: CALL THE BRAIN ---
-  const brainResponse = await fetch(BRAIN_ENDPOINT as string, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      request_text: text,
-    }),
-  });
-
-  if (!brainResponse.ok) {
-    const errorText = await brainResponse.text();
-    return NextResponse.json(
-      { error: "Brain call failed", details: errorText },
-      { status: 500 }
-    );
-  }
-
-  const intentObject = await brainResponse.json();
-
-  // --- STEP 2: CALL THE PROCESSOR (nextjs-boilerplate) ---
-  const processorResponse = await fetch(PROCESSOR_ENDPOINT as string, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ intentObject }),
-  });
-
-  if (!processorResponse.ok) {
-    const errorText = await processorResponse.text();
-    return NextResponse.json(
-      {
-        error: "Processor call failed",
-        details: errorText,
-        intentObject, // Still return brain output
-      },
-      { status: 500 }
-    );
-  }
-
-  const processed = await processorResponse.json();
-
-  // --- RETURN COMBINED OUTPUT ---
   return NextResponse.json({
-    filename: file.name,
-    intentObject,
-    processed,
+    summary: {
+      total: files.length,
+      successful,
+      failed,
+    },
+    results,
   });
 }
