@@ -24,7 +24,7 @@ async function extractText(file: File): Promise<string> {
 // Adapt Brain v2 flat schema to the v1 nested schema expected by the processor
 function adaptBrainV2ToProcessorFormat(v2Output: any): any {
   const deliverables = (v2Output.deliverables || []).map((d: any) => ({
-    deliverable_name: d.name || d.deliverable_name || "Unknown",
+    deliverable_name: String(d.type || d.name || d.deliverable_name || "Unknown"),
     format_hint: d.format || d.format_hint || "",
     qty: d.quantity || d.qty || 1,
   }));
@@ -43,7 +43,7 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
       },
       input: {
         request_text: v2Output.request_summary || "",
-        property: v2Output.property || "",
+        property: typeof v2Output.property === 'string' ? v2Output.property : (v2Output.property?.id || v2Output.property?.name || "unknown"),
         channel_hint: (v2Output.channels || [])[0] || "",
         due_date: v2Output.timeline?.due_date || "",
         attachments: [],
@@ -60,7 +60,7 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
           confidence: 0.8,
         },
         what: {
-          scope_class: routing.recommendation || v2Output.project_type || "production",
+          scope_class: routing.recommendation || v2Output.project_type?.primary || String(v2Output.project_type || "production"),
           novelty: String(v2Output.project_type ?? "").includes("net_new")
             ? "net_new"
             : String(v2Output.project_type ?? "").includes("pickup")
@@ -87,7 +87,7 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
         missing_info: [],
         flags: routing.flags || [],
         human_confirmation_required: clarifications.length > 0,
-        questions_for_humans: clarifications,
+        questions_for_humans: clarifications.map((c: any) => typeof c === 'string' ? c : (c.item || c.question || JSON.stringify(c))),
       },
       sources: {
         source_refs_used: [],
