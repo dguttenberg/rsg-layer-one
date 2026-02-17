@@ -21,6 +21,40 @@ async function extractText(file: File): Promise<string> {
   return await file.text();
 }
 
+// Map Brain v2 routing + project_type to a Workfront workflow scope
+// Uses both signals: routing.recommendation tells us creative vs production,
+// project_type.primary tells us the nature of the work (pickup vs net new vs outdated)
+function determineWorkflowScope(routing: any, projectType: any): string {
+  const recommendation = (routing.recommendation || "").toLowerCase();
+  const primary = (typeof projectType === "string"
+    ? projectType
+    : projectType?.primary || ""
+  ).toLowerCase();
+
+  // Creative Concepting: needs an idea — output of round one is a deck
+  if (
+    primary === "net_new_creative" ||
+    primary === "logo_identity" ||
+    recommendation === "concepting"
+  ) {
+    return "concepting";
+  }
+
+  // Creative Adaptation: design/creative thinking needed but concept exists
+  // pickup_outdated_brand always goes here regardless of routing recommendation
+  if (
+    primary === "pickup_outdated_brand" ||
+    primary === "two_stage" ||
+    recommendation === "two_stage" ||
+    (recommendation === "creative" && primary !== "net_new_creative" && primary !== "logo_identity")
+  ) {
+    return "adaptation";
+  }
+
+  // Quick Turn: templated execution, straight to studio
+  return "quick_turn";
+}
+
 // Adapt Brain v2 flat schema to the v1 nested schema expected by the processor
 function adaptBrainV2ToProcessorFormat(v2Output: any): any {
   const deliverables = (v2Output.deliverables || []).map((d: any) => ({
@@ -60,7 +94,7 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
           confidence: 0.8,
         },
         what: {
-          scope_class: routing.recommendation || v2Output.project_type?.primary || String(v2Output.project_type || "production"),
+          scope_class: determineWorkflowScope(routing, v2Output.project_type),
           novelty: String(v2Output.project_type ?? "").includes("net_new")
             ? "net_new"
             : String(v2Output.project_type ?? "").includes("pickup")
@@ -105,45 +139,28 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
 async function processSingleBrief(file: File): Promise<ProcessedResult> {
   const filename = file.name;
   let intentObject: any = null;
-
   try {
-    // Extract text from file
     const text = await extractText(file);
-
-    // Call the Brain
     const brainResponse = await fetch(BRAIN_ENDPOINT as string, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_text: text }),
     });
-
     if (!brainResponse.ok) {
       const errorText = await brainResponse.text();
       return { filename, success: false, error: `Brain call failed: ${errorText}` };
     }
-
     intentObject = await brainResponse.json();
-
-    // Adapt Brain v2 schema to the format expected by the processor
     const processorPayload = adaptBrainV2ToProcessorFormat(intentObject);
-
-    // Call the Processor
     const processorResponse = await fetch(PROCESSOR_ENDPOINT as string, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(processorPayload),
     });
-
     if (!processorResponse.ok) {
       const errorText = await processorResponse.text();
-      return {
-        filename,
-        success: false,
-        intentObject,
-        error: `Processor call failed: ${errorText}`,
-      };
+      return { filename, success: false, intentObject, error: `Processor call failed: ${errorText}` };
     }
-
     const processed = await processorResponse.json();
     return { filename, success: true, intentObject, processed };
   } catch (err: any) {
@@ -153,39 +170,16 @@ async function processSingleBrief(file: File): Promise<ProcessedResult> {
 
 export async function POST(req: Request) {
   const formData = await req.formData();
-
-  // Get all files - supports both single "file" and multiple "files"
   const files: File[] = [];
-
-  // Check for single file upload (backward compatible)
   const singleFile = formData.get("file") as File | null;
-  if (singleFile) {
-    files.push(singleFile);
-  }
-
-  // Check for multiple files upload
+  if (singleFile) files.push(singleFile);
   const multipleFiles = formData.getAll("files") as File[];
   files.push(...multipleFiles.filter(f => f instanceof File));
-
   if (files.length === 0) {
     return NextResponse.json({ error: "No files received" }, { status: 400 });
   }
-
-  // Process all briefs in parallel
-  const results = await Promise.all(
-    files.map(file => processSingleBrief(file))
-  );
-
-  // Summary stats
+  const results = await Promise.all(files.map(file => processSingleBrief(file)));
   const successful = results.filter(r => r.success).length;
   const failed = results.filter(r => !r.success).length;
-
-  return NextResponse.json({
-    summary: {
-      total: files.length,
-      successful,
-      failed,
-    },
-    results,
-  });
+  return NextResponse.json({ summary: { total: files.length, successful, failed }, results });
 }
