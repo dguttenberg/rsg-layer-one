@@ -61,9 +61,9 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
         },
         what: {
           scope_class: routing.recommendation || v2Output.project_type || "production",
-          novelty: v2Output.project_type?.includes("net_new")
+          novelty: String(v2Output.project_type ?? "").includes("net_new")
             ? "net_new"
-            : v2Output.project_type?.includes("pickup")
+            : String(v2Output.project_type ?? "").includes("pickup")
             ? "pickup"
             : "derivative",
           deliverables,
@@ -104,6 +104,7 @@ function adaptBrainV2ToProcessorFormat(v2Output: any): any {
 
 async function processSingleBrief(file: File): Promise<ProcessedResult> {
   const filename = file.name;
+  let intentObject: any = null;
 
   try {
     // Extract text from file
@@ -121,7 +122,7 @@ async function processSingleBrief(file: File): Promise<ProcessedResult> {
       return { filename, success: false, error: `Brain call failed: ${errorText}` };
     }
 
-    const intentObject = await brainResponse.json();
+    intentObject = await brainResponse.json();
 
     // Adapt Brain v2 schema to the format expected by the processor
     const processorPayload = adaptBrainV2ToProcessorFormat(intentObject);
@@ -146,7 +147,7 @@ async function processSingleBrief(file: File): Promise<ProcessedResult> {
     const processed = await processorResponse.json();
     return { filename, success: true, intentObject, processed };
   } catch (err: any) {
-    return { filename, success: false, error: err.message || "Unknown error" };
+    return { filename, success: false, intentObject, error: err.message || "Unknown error" };
   }
 }
 
