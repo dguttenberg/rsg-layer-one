@@ -8,7 +8,7 @@ type ProcessedResult = {
   filename: string;
   success: boolean;
   intentObject?: any;
-  processed?: any;
+  processed?: any
   error?: string;
 };
 
@@ -49,8 +49,8 @@ async function processSingleBrief(file: File): Promise<ProcessedResult> {
     // Call the Processor
     const processorResponse = await fetch(PROCESSOR_ENDPOINT as string, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intentObject }),
+      headers: {"Content-Type": "application/json" },
+      body: JSON.stringify({ intent_object: intentObject }),
     });
 
     if (!processorResponse.ok) {
