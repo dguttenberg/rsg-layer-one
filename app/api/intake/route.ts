@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import pdf from "pdf-parse";
+// Import core parser directly — avoids test-file loading + deprecated Buffer() on Node 22+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdf = require('pdf-parse/lib/pdf-parse.js');
 
 const BRAIN_ENDPOINT = process.env.BRAIN_ENDPOINT;
 const PROCESSOR_ENDPOINT = process.env.PROCESSOR_ENDPOINT;
